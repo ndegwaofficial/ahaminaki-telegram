@@ -137,7 +137,7 @@ const initiateSTKPush = async (phoneNumber, amount, chatId) => {
     throw error;
   }
 };
-
+//sf
 app.post("/mpesa/callback/:chatId", async (req, res) => {
   const data = req.body;
   const chatId = req.params.chatId;
