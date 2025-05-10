@@ -62,7 +62,6 @@ const sendTelegramMessage = async (chatId, text) => {
 const getAIResponse = async (userMessage) => {
   try {
     console.log("Sending AI request with key:", OPENROUTER_KEY ? "PRESENT" : "MISSING");
-
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -72,7 +71,7 @@ const getAIResponse = async (userMessage) => {
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: OPENROUTER_KEY, // <-- No "Bearer" here
+          Authorization: `Bearer ${OPENROUTER_KEY}`,
         },
       }
     );
@@ -80,7 +79,7 @@ const getAIResponse = async (userMessage) => {
     return response.data.choices?.[0]?.message?.content || "Sorry, I couldn't understand that.";
   } catch (error) {
     console.error("AI Response Error:", error.response?.data || error.message);
-    return "Something went wrong while trying to respond.";
+    return "Something went wrong.";
   }
 };
 
@@ -97,11 +96,12 @@ const initiateSTKPush = async (phoneNumber, amount, chatId) => {
       }
     );
 
+    console.log("Access Token Response:", tokenRes.data); // Debug log
+
     const accessToken = tokenRes.data.access_token;
     console.log("Access Token:", accessToken);
 
-    const timestamp = new Date().toISOString().replace(/[-T:.Z]/g, "").slice(0, 14);
-
+    const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
     const password = Buffer.from(
       process.env.MPESA_SHORTCODE + process.env.MPESA_PASSKEY + timestamp
     ).toString("base64");
@@ -148,7 +148,7 @@ app.post("/mpesa/callback/:chatId", async (req, res) => {
     const receipt = data.Body.stkCallback.CallbackMetadata.Item.find(i => i.Name === "MpesaReceiptNumber")?.Value;
     await sendTelegramMessage(chatId, `✅ Payment received. Receipt: ${receipt}\n\n🎉 Therapy session booked. A therapist will contact you shortly.`);
   } else {
-    await sendTelegramMessage(chatId, "❌ Payment failed or was cancelled.");
+    await sendTelegramMessage(chatId, "❌ Payment failed or cancelled.");
   }
 
   res.sendStatus(200);
