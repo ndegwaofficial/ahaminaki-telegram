@@ -1,5 +1,4 @@
 require("dotenv").config();
-console.log("OPENROUTER_KEY:", process.env.OPENROUTER_KEY);
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
@@ -11,27 +10,26 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_TOKEN}`;
 const OPENROUTER_KEY = process.env.OPENROUTER_KEY;
 
+console.log("TELEGRAM_TOKEN loaded:", !!TELEGRAM_TOKEN);
+console.log("OPENROUTER_KEY loaded:", !!OPENROUTER_KEY);
+
 const therapistKeywords = [
   "depressed", "anxious", "hopeless", "suicidal", "worthless",
   "book therapist", "talk to therapist"
 ];
-const therapistReply = `💬 It seems you're going through something tough.\n\n📞 Please contact our therapist: +254 700 123 456\n🕒 Mon–Fri, 9AM–5PM`;
 
 app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   const message = req.body.message;
-
   if (!message || !message.text) return res.sendStatus(200);
 
   const chatId = message.chat.id;
   const userText = message.text.toLowerCase();
 
-  // Therapist suggestion
   if (therapistKeywords.some(word => userText.includes(word))) {
     await sendTelegramMessage(chatId, "📞 Please share your Safaricom phone number (format: 2547XXXXXXXX) to book a therapist session (KES 100).");
     return res.sendStatus(200);
   }
 
-  // If the user sends a valid phone number, initiate STK Push
   const phoneRegex = /^2547\d{8}$/;
   if (phoneRegex.test(userText)) {
     await sendTelegramMessage(chatId, `✅ Initiating M-Pesa payment for KES 100...`);
@@ -45,7 +43,6 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // AI Chat
   const aiResponse = await getAIResponse(userText);
   await sendTelegramMessage(chatId, aiResponse);
   res.sendStatus(200);
@@ -64,6 +61,7 @@ const sendTelegramMessage = async (chatId, text) => {
 
 const getAIResponse = async (userMessage) => {
   try {
+    console.log("Sending AI request with key:", OPENROUTER_KEY ? "PRESENT" : "MISSING");
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
@@ -73,7 +71,7 @@ const getAIResponse = async (userMessage) => {
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENROUTER_KEY}`,
+          Authorization: `Bearer ${process.env.OPENROUTER_KEY}`,
         },
       }
     );
@@ -86,25 +84,27 @@ const getAIResponse = async (userMessage) => {
 };
 
 const initiateSTKPush = async (phoneNumber, amount, chatId) => {
-  const tokenRes = await axios.get(
-    `https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials`,
-    {
-      auth: {
-        username: process.env.MPESA_CONSUMER_KEY,
-        password: process.env.MPESA_CONSUMER_SECRET,
-      },
-    }
-  );
+  try {
+    console.log("Requesting access token...");
+    const tokenRes = await axios.get(
+      `https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials`,
+      {
+        auth: {
+          username: process.env.MPESA_CONSUMER_KEY,
+          password: process.env.MPESA_CONSUMER_SECRET,
+        },
+      }
+    );
 
-  const accessToken = tokenRes.data.access_token;
-  const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
-  const password = Buffer.from(
-    process.env.MPESA_SHORTCODE + process.env.MPESA_PASSKEY + timestamp
-  ).toString("base64");
+    const accessToken = tokenRes.data.access_token;
+    console.log("Access Token:", accessToken);
 
-  await axios.post(
-    `https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest`,
-    {
+    const timestamp = new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14);
+    const password = Buffer.from(
+      process.env.MPESA_SHORTCODE + process.env.MPESA_PASSKEY + timestamp
+    ).toString("base64");
+
+    const payload = {
       BusinessShortCode: process.env.MPESA_SHORTCODE,
       Password: password,
       Timestamp: timestamp,
@@ -116,14 +116,24 @@ const initiateSTKPush = async (phoneNumber, amount, chatId) => {
       CallBackURL: `${process.env.BASE_URL}/mpesa/callback/${chatId}`,
       AccountReference: "Therapy",
       TransactionDesc: "Therapy session booking",
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
+    };
+
+    console.log("Sending STK Push with payload:", payload);
+
+    await axios.post(
+      `https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  } catch (error) {
+    console.error("STK Push Error:", error.response?.data || error.message);
+    throw error;
+  }
 };
 
 app.post("/mpesa/callback/:chatId", async (req, res) => {
