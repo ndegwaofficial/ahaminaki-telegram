@@ -1,7 +1,8 @@
+require("dotenv").config();
+console.log("OPENROUTER_KEY:", process.env.OPENROUTER_KEY);
 const express = require("express");
 const bodyParser = require("body-parser");
 const axios = require("axios");
-require("dotenv").config();
 
 const app = express();
 app.use(bodyParser.json());
